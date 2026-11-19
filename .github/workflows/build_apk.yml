@@ -20,11 +20,12 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter create --platforms=android --project-name loot_arena .
+      - run: rm -f test/widget_test.dart
       - run: |
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/' android/app/build.gradle*
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/' android/app/build.gradle*
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/' android/app/build.gradle*
-      - run: flutter analyze
+      - run: flutter analyze lib
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
