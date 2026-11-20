@@ -1,0 +1,166 @@
+name: Build 3D Loot Arena APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create Android WebView wrapper project
+        run: |
+          rm -rf android_3d_app
+          mkdir -p android_3d_app/app/src/main/java/com/lootarena/game3d
+          mkdir -p android_3d_app/app/src/main/res/values
+          mkdir -p android_3d_app/app/src/main/assets
+
+          cp web_3d/index.html android_3d_app/app/src/main/assets/index.html
+
+          cat << 'EOF' > android_3d_app/settings.gradle
+          rootProject.name = "LootArena3D"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > android_3d_app/build.gradle
+          buildscript {
+            repositories {
+              google()
+              mavenCentral()
+            }
+            dependencies {
+              classpath 'com.android.tools.build:gradle:8.2.2'
+            }
+          }
+          allprojects {
+            repositories {
+              google()
+              mavenCentral()
+            }
+          }
+          EOF
+
+          cat << 'EOF' > android_3d_app/app/build.gradle
+          plugins {
+            id 'com.android.application'
+          }
+
+          android {
+            namespace "com.lootarena.game3d"
+            compileSdk 34
+
+            defaultConfig {
+              applicationId "com.lootarena.game3d"
+              minSdk 23
+              targetSdk 34
+              versionCode 1
+              versionName "1.0"
+            }
+
+            buildTypes {
+              release {
+                minifyEnabled false
+              }
+              debug {
+                minifyEnabled false
+              }
+            }
+
+            compileOptions {
+              sourceCompatibility JavaVersion.VERSION_17
+              targetCompatibility JavaVersion.VERSION_17
+            }
+          }
+          EOF
+
+          cat << 'EOF' > android_3d_app/app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <application
+              android:label="ميدان الغنائم 3D"
+              android:usesCleartextTraffic="true">
+              <activity
+                android:name=".MainActivity"
+                android:exported="true"
+                android:configChanges="orientation|screenSize|keyboardHidden">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN" />
+                  <category android:name="android.intent.category.LAUNCHER" />
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > android_3d_app/app/src/main/res/values/strings.xml
+          <resources>
+            <string name="app_name">ميدان الغنائم 3D</string>
+          </resources>
+          EOF
+
+          cat << 'EOF' > android_3d_app/app/src/main/java/com/lootarena/game3d/MainActivity.java
+          package com.lootarena.game3d;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+            private WebView webView;
+
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+              webView = new WebView(this);
+              setContentView(webView);
+
+              WebSettings settings = webView.getSettings();
+              settings.setJavaScriptEnabled(true);
+              settings.setDomStorageEnabled(true);
+              settings.setAllowFileAccess(true);
+              settings.setMediaPlaybackRequiresUserGesture(false);
+
+              webView.setWebViewClient(new WebViewClient());
+              webView.setWebChromeClient(new WebChromeClient());
+              webView.loadUrl("file:///android_asset/index.html");
+            }
+
+            @Override
+            public void onBackPressed() {
+              if (webView != null && webView.canGoBack()) {
+                webView.goBack();
+              } else {
+                super.onBackPressed();
+              }
+            }
+          }
+          EOF
+
+      - name: Build Debug APK
+        run: |
+          cd android_3d_app
+          gradle assembleDebug --no-daemon
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: loot-arena-3d-apk
+          path: android_3d_app/app/build/outputs/apk/debug/app-debug.apk
