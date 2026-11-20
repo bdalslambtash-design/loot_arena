@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ميدان الغنائم 3D</title>
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #0d131a; font-family: Tahoma, Arial, sans-serif; color: #fff;
+    }
+    #hud {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 14px; background: rgba(15, 23, 34, 0.78); backdrop-filter: blur(4px);
+      font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .badge { color: #ffd54f; font-weight: bold; }
+    #overlay {
+      position: fixed; inset: 0; z-index: 20; display: none;
+      align-items: center; justify-content: center; background: rgba(0,0,0,0.65);
+    }
+    #card {
+      background: #162230; border: 1.5px solid #ffd54f; border-radius: 14px;
+      padding: 20px; width: 84%; max-width: 340px; text-align: center;
+    }
+    #card h2 { margin: 0 0 10px; font-size: 18px; }
+    #card p { margin: 0 0 16px; color: #ffd54f; font-size: 14px; }
+    .btn {
+      border: none; border-radius: 10px; padding: 10px 16px; color: #fff;
+      font-weight: bold; font-size: 14px; cursor: pointer;
+    }
+    #restart-btn { background: #2e7d32; width: 100%; }
+    #controls {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+      display: flex; justify-content: space-between; align-items: flex-end;
+      padding: 18px; pointer-events: none;
+    }
+    .group { pointer-events: auto; display: flex; align-items: center; }
+
+    /* عصا التحكم الدائرية */
+    #joystick-base {
+      position: relative;
+      width: 112px;
+      height: 112px;
+      border-radius: 50%;
+      background: rgba(25, 39, 56, 0.68);
+      border: 1.5px solid rgba(255, 255, 255, 0.22);
+      touch-action: none;
+    }
+    #joystick-knob {
+      position: absolute;
+      width: 44px;
+      height: 44px;
+      left: 50%;
+      top: 50%;
+      margin-left: -22px;
+      margin-top: -22px;
+      border-radius: 50%;
+      background: rgba(79, 195, 247, 0.9);
+      border: 2px solid rgba(255, 255, 255, 0.75);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+      transform: translate(0px, 0px);
+      pointer-events: none;
+    }
+
+    #fire-btn {
+      background: #e53935; border-radius: 26px; padding: 15px 24px; font-size: 15px;
+      touch-action: none; box-shadow: 0 4px 14px rgba(229,57,53,0.45);
+    }
+    #top-reset { background: #26384d; padding: 6px 10px; border-radius: 8px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div>ميدان الغنائم 3D | <span class="badge" id="status">الخصوم: 3</span></div>
+    <div>
+      الصحة: <span id="hp" style="color:#69f0ae">100</span> |
+      النقاط: <span class="badge" id="score">0</span>
+      <button class="btn" id="top-reset">إعادة</button>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <div id="card">
+      <h2 id="end-title">انتهت الجولة</h2>
+      <p id="end-sub">النقاط: 0</p>
+      <button class="btn" id="restart-btn">لعب مرة أخرى</button>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div class="group">
+      <div id="joystick-base">
+        <div id="joystick-knob"></div>
+      </div>
+    </div>
+    <div class="group">
+      <button class="btn" id="fire-btn">إطلاق</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script>
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111923);
+    scene.fog = new THREE.Fog(0x111923, 28, 55);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 120);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.65);
+    scene.add(ambient);
+    const dirLight = new THREE.DirectionalLight(0xfff3d6, 1.1);
+    dirLight.position.set(12, 22, 14);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    const arenaHalf = 16;
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(arenaHalf * 2, arenaHalf * 2),
+      new THREE.MeshStandardMaterial({ color: 0x25303d, roughness: 0.85 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    const grid = new THREE.GridHelper(arenaHalf * 2, 16, 0x3b4d63, 0x1c2633);
+    scene.add(grid);
+
+    const obstacles = [];
+    const coverPositions = [
+      [-6, 1.0, -5], [6, 1.0, -5],
+      [-6, 1.0, 5],  [6, 1.0, 5]
+    ];
+    for (const [x, y, z] of coverPositions) {
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(3.2, 2.0, 1.4),
+        new THREE.MeshStandardMaterial({ color: 0x6b7785, roughness: 0.6 })
+      );
+      box.position.set(x, y, z);
+      box.castShadow = true;
+      box.receiveShadow = true;
+      scene.add(box);
+      obstacles.push(box);
+    }
+
+    function createFighterMesh(colorHex) {
+      const group = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(1.1, 1.6, 0.9),
+        new THREE.MeshStandardMaterial({ color: colorHex })
+      );
+      body.position.y = 0.8;
+      body.castShadow = true;
+      group.add(body);
+
+      const gun = new THREE.Mesh(
+        new THREE.BoxGeometry(0.24, 0.24, 1.2),
+        new THREE.MeshStandardMaterial({ color: 0xcfd8dc })
+      );
+      gun.position.set(0.55, 1.0, -0.55);
+      group.add(gun);
+      return group;
+    }
+
+    let player, bots = [], bullets = [], loots = [];
+    let hp = 100, score = 0, matchOver = false, yaw = 0, fireCooldown = 0, isFiring = false;
+    let joyX = 0, joyY = 0; // joyX: يمين/يسار، joyY: للأمام (سالب) أو للخلف (موجب)
+
+    function clearList(arr) {
+      for (const item of arr) scene.remove(item.mesh || item);
+      arr.length = 0;
+    }
+
+    function resetGame() {
+      if (player) scene.remove(player);
+      clearList(bots);
+      clearList(bullets);
+      clearList(loots);
+
+      hp = 100; score = 0; matchOver = false; yaw = 0; fireCooldown = 0; isFiring = false;
+      joyX = 0; joyY = 0;
+      resetKnob();
+      document.getElementById('overlay').style.display = 'none';
+
+      player = createFighterMesh(0x29b6f6);
+      player.position.set(0, 0, 8);
+      scene.add(player);
+
+      const botSpawns = [[-9, 0, -9], [9, 0, -9], [0, 0, -11]];
+      botSpawns.forEach(([x, y, z], idx) => {
+        const mesh = createFighterMesh(0xef5350);
+        mesh.position.set(x, y, z);
+        scene.add(mesh);
+        bots.push({ mesh, hp: 60, alive: true, cd: 30 + idx * 15, dirX: 0, dirZ: 1, aiTimer: 0 });
+      });
+
+      const lootSpawns = [[0, 0.5, 0], [-9, 0.5, 0], [9, 0.5, 0]];
+      lootSpawns.forEach(([x, y, z], i) => {
+        const isMed = i % 2 === 0;
+        const m = new THREE.Mesh(
+          new THREE.BoxGeometry(0.9, 0.9, 0.9),
+          new THREE.MeshStandardMaterial({ color: isMed ? 0x2e7d32 : 0x00acc1 })
+        );
+        m.position.set(x, y, z);
+        scene.add(m);
+        loots.push({ mesh: m, isMed, active: true });
+      });
+
+      updateHud();
+    }
+
+    function hitsCover(x, z, radius = 0.7) {
+      for (const box of obstacles) {
+        const hx = 1.6 + radius;
+        const hz = 0.7 + radius;
+        if (Math.abs(x - box.position.x) < hx && Math.abs(z - box.position.z) < hz) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function spawnBullet(fromPos, dirVec, fromPlayer) {
+      const bMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.18, 8, 8),
+        new THREE.MeshBasicMaterial({ color: fromPlayer ? 0xffee58 : 0xff7043 })
+      );
+      bMesh.position.copy(fromPos);
+      scene.add(bMesh);
+      bullets.push({ mesh: bMesh, vel: dirVec.clone().multiplyScalar(0.55), fromPlayer, life: 70 });
+    }
+
+    function shootPlayer() {
+      if (matchOver || hp <= 0 || fireCooldown > 0) return;
+      fireCooldown = 10;
+      const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)).normalize();
+      const origin = player.position.clone().add(new THREE.Vector3(0, 1.0, 0)).addScaledVector(forward, 1.0);
+      spawnBullet(origin, forward, true);
+    }
+
+    function updateHud() {
+      const aliveCount = bots.filter(b => b.alive).length;
+      document.getElementById('hp').textContent = Math.max(0, Math.round(hp));
+      document.getElementById('score').textContent = score;
+      document.getElementById('status').textContent = `الخصوم: ${aliveCount}`;
+    }
+
+    function endMatch(won) {
+      matchOver = true;
+      document.getElementById('end-title').textContent = won ? 'انتصار! سيطرت على الميدان' : 'تم إقصاؤك!';
+      document.getElementById('end-sub').textContent = `مجموع النقاط: ${score}`;
+      document.getElementById('overlay').style.display = 'flex';
+    }
+
+    function loop() {
+      requestAnimationFrame(loop);
+
+      if (!matchOver && hp > 0) {
+        if (fireCooldown > 0) fireCooldown--;
+        if (isFiring) shootPlayer();
+
+        // حركة اللاعب عبر عصا التحكم الدائرية
+        const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+        const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        const moveMag = Math.hypot(joyX, joyY);
+
+        if (moveMag > 0.08) {
+          const dir = new THREE.Vector3();
+          dir.addScaledVector(right, joyX);
+          dir.addScaledVector(forward, -joyY);
+          const speed = 0.16 * Math.min(1, moveMag);
+          dir.normalize().multiplyScalar(speed);
+
+          const nx = Math.max(-arenaHalf + 1, Math.min(arenaHalf - 1, player.position.x + dir.x));
+          const nz = Math.max(-arenaHalf + 1, Math.min(arenaHalf - 1, player.position.z + dir.z));
+          if (!hitsCover(nx, nz)) {
+            player.position.x = nx;
+            player.position.z = nz;
+          }
+        }
+        player.rotation.y = yaw;
+
+        for (const item of loots) {
+          if (!item.active) continue;
+          item.mesh.rotation.y += 0.03;
+          if (player.position.distanceTo(item.mesh.position) < 1.8) {
+            item.active = false;
+            scene.remove(item.mesh);
+            score += 25;
+            if (item.isMed) hp = Math.min(100, hp + 35);
+            else score += 15;
+            updateHud();
+          }
+        }
+
+        for (const b of bots) {
+          if (!b.alive) continue;
+          if (b.aiTimer <= 0) {
+            b.aiTimer = 45 + Math.floor(Math.random() * 40);
+            const ang = Math.random() * Math.PI * 2;
+            b.dirX = Math.cos(ang);
+            b.dirZ = Math.sin(ang);
+          } else {
+            b.aiTimer--;
+          }
+
+          const bx = Math.max(-arenaHalf + 1, Math.min(arenaHalf - 1, b.mesh.position.x + b.dirX * 0.06));
+          const bz = Math.max(-arenaHalf + 1, Math.min(arenaHalf - 1, b.mesh.position.z + b.dirZ * 0.06));
+          if (!hitsCover(bx, bz)) {
+            b.mesh.position.x = bx;
+            b.mesh.position.z = bz;
+          }
+
+          const toPlayer = new THREE.Vector3().subVectors(player.position, b.mesh.position);
+          const dist = toPlayer.length();
+          if (dist < 20) {
+            b.mesh.lookAt(player.position.x, b.mesh.position.y, player.position.z);
+            if (b.cd <= 0) {
+              b.cd = 55;
+              const aimDir = toPlayer.clone().setY(0).normalize();
+              const origin = b.mesh.position.clone().add(new THREE.Vector3(0, 1.0, 0)).addScaledVector(aimDir, 1.0);
+              spawnBullet(origin, aimDir, false);
+            } else {
+              b.cd--;
+            }
+          }
+        }
+      }
+
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const bl = bullets[i];
+        bl.mesh.position.add(bl.vel);
+        bl.life--;
+
+        const p = bl.mesh.position;
+        if (bl.life <= 0 || Math.abs(p.x) > arenaHalf || Math.abs(p.z) > arenaHalf || hitsCover(p.x, p.z, 0.2)) {
+          scene.remove(bl.mesh);
+          bullets.splice(i, 1);
+          continue;
+        }
+
+        if (bl.fromPlayer) {
+          let hitBot = false;
+          for (const b of bots) {
+            if (!b.alive) continue;
+            if (Math.hypot(p.x - b.mesh.position.x, p.z - b.mesh.position.z) < 1.1) {
+              b.hp -= 25;
+              hitBot = true;
+              if (b.hp <= 0) {
+                b.alive = false;
+                scene.remove(b.mesh);
+                score += 100;
+              }
+              updateHud();
+              break;
+            }
+          }
+          if (hitBot) {
+            scene.remove(bl.mesh);
+            bullets.splice(i, 1);
+          }
+        } else if (!matchOver && hp > 0) {
+          if (Math.hypot(p.x - player.position.x, p.z - player.position.z) < 1.0) {
+            hp -= 8;
+            scene.remove(bl.mesh);
+            bullets.splice(i, 1);
+            updateHud();
+            if (hp <= 0) endMatch(false);
+          }
+        }
+      }
+
+      if (!matchOver && hp > 0 && bots.every(b => !b.alive)) {
+        score += 150;
+        updateHud();
+        endMatch(true);
+      }
+
+      if (player) {
+        const camOffset = new THREE.Vector3(Math.sin(yaw) * 9, 8.5, Math.cos(yaw) * 9);
+        camera.position.lerp(player.position.clone().add(camOffset), 0.15);
+        camera.lookAt(player.position.x, 1.0, player.position.z);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // منطق عصا التحكم الدائرية
+    const joyBase = document.getElementById('joystick-base');
+    const joyKnob = document.getElementById('joystick-knob');
+    let joyPointerId = null;
+    const maxRadius = 34;
+
+    function resetKnob() {
+      joyX = 0;
+      joyY = 0;
+      joyKnob.style.transform = 'translate(0px, 0px)';
+    }
+
+    function updateJoystick(clientX, clientY) {
+      const rect = joyBase.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      let dx = clientX - cx;
+      let dy = clientY - cy;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist > maxRadius) {
+        dx = (dx / dist) * maxRadius;
+        dy = (dy / dist) * maxRadius;
+      }
+
+      joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+      joyX = dx / maxRadius;
+      joyY = dy / maxRadius;
+    }
+
+    joyBase.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      joyPointerId = e.pointerId;
+      joyBase.setPointerCapture(e.pointerId);
+      updateJoystick(e.clientX, e.clientY);
+    });
+
+    joyBase.addEventListener('pointermove', e => {
+      if (e.pointerId !== joyPointerId) return;
+      updateJoystick(e.clientX, e.clientY);
+    });
+
+    function releaseJoystick(e) {
+      if (e.pointerId !== joyPointerId) return;
+      joyPointerId = null;
+      resetKnob();
+    }
+    joyBase.addEventListener('pointerup', releaseJoystick);
+    joyBase.addEventListener('pointercancel', releaseJoystick);
+
+    // سحب الشاشة لتدوير الكاميرا والتصويب
+    let lastTouchX = null;
+    renderer.domElement.addEventListener('touchstart', e => {
+      if (e.touches.length > 0) lastTouchX = e.touches[0].clientX;
+    }, { passive: true });
+    renderer.domElement.addEventListener('touchmove', e => {
+      if (e.touches.length > 0 && lastTouchX !== null) {
+        const dx = e.touches[0].clientX - lastTouchX;
+        yaw -= dx * 0.008;
+        lastTouchX = e.touches[0].clientX;
+      }
+    }, { passive: true });
+
+    const fireEl = document.getElementById('fire-btn');
+    fireEl.addEventListener('pointerdown', e => { e.preventDefault(); isFiring = true; shootPlayer(); });
+    fireEl.addEventListener('pointerup', () => { isFiring = false; });
+    fireEl.addEventListener('pointercancel', () => { isFiring = false; });
+
+    document.getElementById('restart-btn').addEventListener('click', resetGame);
+    document.getElementById('top-reset').addEventListener('click', resetGame);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    resetGame();
+    loop();
+  </script>
+</body>
+</html>
