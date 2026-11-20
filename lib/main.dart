@@ -555,7 +555,7 @@ class ArenaPainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, bgPaint);
 
     final zonePaint = Paint()
-      ..color = Colors.amber.withValues(alpha: 0.45)
+      ..color = Colors.amber.withOpacity(0.45)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.5;
     canvas.drawCircle(center, zoneRadius, zonePaint);
