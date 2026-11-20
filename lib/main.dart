@@ -35,32 +35,48 @@ class _ArenaScreenState extends State<ArenaScreen> {
 
   Size _arenaSize = const Size(380, 520);
   double _zoneRadius = 240;
+  int _round = 1;
   int _score = 0;
+  int _kills = 0;
   int _tickCount = 0;
   bool _matchOver = false;
-  String _statusText = 'استعد للمواجهة';
+  bool _roundWon = false;
+  String _statusText = 'الجولة 1 - استعد للمواجهة';
   Offset _moveDir = Offset.zero;
+  bool _isFiring = false;
+  int _rapidFireTicks = 0;
+  int _dashCooldown = 0;
 
   late Fighter _player;
   final List<Fighter> _bots = [];
   final List<Bullet> _bullets = [];
   final List<LootItem> _lootDrops = [];
-  final List<Rect> _obstacles = [];
+  final List<CoverBlock> _obstacles = [];
+  final List<HitSpark> _sparks = [];
 
   @override
   void initState() {
     super.initState();
-    _initMatch();
+    _initMatch(resetProgress: true);
     _startLoop();
   }
 
-  void _initMatch() {
+  void _initMatch({required bool resetProgress}) {
+    if (resetProgress) {
+      _round = 1;
+      _score = 0;
+      _kills = 0;
+    }
+
     final center = Offset(_arenaSize.width / 2, _arenaSize.height / 2);
-    _zoneRadius = min(_arenaSize.width, _arenaSize.height) * 0.46;
-    _score = 0;
+    _zoneRadius = min(_arenaSize.width, _arenaSize.height) * 0.47;
     _tickCount = 0;
     _matchOver = false;
-    _statusText = 'المعركة بدأت! استعد للتحرك';
+    _roundWon = false;
+    _isFiring = false;
+    _rapidFireTicks = 0;
+    _dashCooldown = 0;
+    _statusText = 'الجولة $_round - استعد للتحرك!';
 
     _player = Fighter(
       pos: center,
@@ -76,37 +92,105 @@ class _ArenaScreenState extends State<ArenaScreen> {
     _bullets.clear();
     _lootDrops.clear();
     _obstacles.clear();
+    _sparks.clear();
 
-    _obstacles.addAll([
-      Rect.fromCenter(center: center + const Offset(-75, -65), width: 48, height: 48),
-      Rect.fromCenter(center: center + const Offset(75, -65), width: 48, height: 48),
-      Rect.fromCenter(center: center + const Offset(-75, 65), width: 48, height: 48),
-      Rect.fromCenter(center: center + const Offset(75, 65), width: 48, height: 48),
-    ]);
+    // توزيع السواتر حسب رقم الجولة لتنويع ساحات القتال
+    final layoutType = _round % 3;
+    if (layoutType == 1) {
+      _obstacles.addAll([
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(-78, -68), width: 54, height: 34),
+          isSandbag: false,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(78, -68), width: 54, height: 34),
+          isSandbag: true,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(-78, 68), width: 54, height: 34),
+          isSandbag: true,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(78, 68), width: 54, height: 34),
+          isSandbag: false,
+        ),
+      ]);
+    } else if (layoutType == 2) {
+      _obstacles.addAll([
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(0, -88), width: 72, height: 28),
+          isSandbag: true,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(0, 88), width: 72, height: 28),
+          isSandbag: true,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(-92, 0), width: 28, height: 72),
+          isSandbag: false,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(92, 0), width: 28, height: 72),
+          isSandbag: false,
+        ),
+      ]);
+    } else {
+      _obstacles.addAll([
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(-65, -75), width: 46, height: 46),
+          isSandbag: false,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(65, -75), width: 46, height: 46),
+          isSandbag: false,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(-65, 75), width: 46, height: 46),
+          isSandbag: true,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(65, 75), width: 46, height: 46),
+          isSandbag: true,
+        ),
+        CoverBlock(
+          rect: Rect.fromCenter(center: center + const Offset(0, -115), width: 44, height: 24),
+          isSandbag: true,
+        ),
+      ]);
+    }
 
-    for (int i = 0; i < 6; i++) {
-      final angle = (2 * pi * i) / 6;
-      final radius = min(_arenaSize.width, _arenaSize.height) * 0.35;
+    // زيادة عدد وقوة الخصوم تدريجياً في كل جولة
+    final botCount = min(12, 5 + _round);
+    final botHp = 70.0 + (_round - 1) * 10.0;
+    final botShield = min(60.0, 15.0 + (_round - 1) * 5.0);
+
+    for (int i = 0; i < botCount; i++) {
+      final angle = (2 * pi * i) / botCount;
+      final radius = min(_arenaSize.width, _arenaSize.height) * 0.36;
       _bots.add(
         Fighter(
           pos: Offset(center.dx + cos(angle) * radius, center.dy + sin(angle) * radius),
           angle: angle + pi,
-          hp: 75,
-          maxHp: 75,
-          shield: 20,
+          hp: botHp,
+          maxHp: botHp,
+          shield: botShield,
           isAlive: true,
           isPlayer: false,
         ),
       );
     }
 
-    for (int i = 0; i < 6; i++) {
+    // غنائم متنوعة في الساحة (إسعاف، درع، ترقية سلاح)
+    for (int i = 0; i < 7; i++) {
       final angle = _rng.nextDouble() * 2 * pi;
-      final dist = 30 + _rng.nextDouble() * 100;
+      final dist = 35 + _rng.nextDouble() * 105;
+      final kind = i == 0
+          ? LootKind.weaponBoost
+          : (i.isEven ? LootKind.medkit : LootKind.shield);
       _lootDrops.add(
         LootItem(
           pos: Offset(center.dx + cos(angle) * dist, center.dy + sin(angle) * dist),
-          kind: i.isEven ? LootKind.medkit : LootKind.shield,
+          kind: kind,
         ),
       );
     }
@@ -121,12 +205,20 @@ class _ArenaScreenState extends State<ArenaScreen> {
 
   void _shootFrom(Fighter shooter, double angle) {
     if (!shooter.isAlive || shooter.fireCooldown > 0) return;
-    shooter.fireCooldown = shooter.isPlayer ? 7 : 36;
-    const speed = 8.0;
+
+    if (shooter.isPlayer) {
+      shooter.fireCooldown = _rapidFireTicks > 0 ? 4 : 8;
+    } else {
+      shooter.fireCooldown = max(22, 38 - _round * 2);
+    }
+
+    shooter.muzzleFlashTicks = 3;
+    const speed = 8.8;
     final muzzle = Offset(
-      shooter.pos.dx + cos(angle) * 20,
-      shooter.pos.dy + sin(angle) * 20,
+      shooter.pos.dx + cos(angle) * 21,
+      shooter.pos.dy + sin(angle) * 21,
     );
+
     _bullets.add(
       Bullet(
         pos: muzzle,
@@ -134,29 +226,71 @@ class _ArenaScreenState extends State<ArenaScreen> {
         fromPlayer: shooter.isPlayer,
       ),
     );
+
+    // عند تفعيل ترقية السلاح يطلق اللاعب طلقة مزدوجة بزاوية خفيفة
+    if (shooter.isPlayer && _rapidFireTicks > 0) {
+      final spreadAngle = angle + 0.11;
+      _bullets.add(
+        Bullet(
+          pos: muzzle,
+          vel: Offset(cos(spreadAngle) * speed, sin(spreadAngle) * speed),
+          fromPlayer: true,
+        ),
+      );
+    }
   }
 
   bool _hitsObstacle(Offset pos, double radius) {
     final hitRect = Rect.fromCircle(center: pos, radius: radius);
-    for (final rect in _obstacles) {
-      if (rect.overlaps(hitRect)) return true;
+    for (final block in _obstacles) {
+      if (block.rect.overlaps(hitRect)) return true;
     }
     return false;
+  }
+
+  void _performDash() {
+    if (_matchOver || !_player.isAlive || _dashCooldown > 0) return;
+    _dashCooldown = 45;
+    final dir = _moveDir != Offset.zero
+        ? _moveDir / _moveDir.distance
+        : Offset(cos(_player.angle), sin(_player.angle));
+
+    for (double step = 12; step <= 48; step += 12) {
+      final candidate = Offset(
+        (_player.pos.dx + dir.dx * 12).clamp(18.0, _arenaSize.width - 18.0),
+        (_player.pos.dy + dir.dy * 12).clamp(18.0, _arenaSize.height - 18.0),
+      );
+      if (!_hitsObstacle(candidate, 14)) {
+        _player.pos = candidate;
+      } else {
+        break;
+      }
+    }
+    _sparks.add(HitSpark(pos: _player.pos, color: Colors.cyanAccent, life: 10));
   }
 
   void _updateGame() {
     if (_matchOver) return;
     _tickCount++;
 
+    if (_rapidFireTicks > 0) _rapidFireTicks--;
+    if (_dashCooldown > 0) _dashCooldown--;
+
     final center = Offset(_arenaSize.width / 2, _arenaSize.height / 2);
 
     if (_player.isAlive) {
       if (_player.fireCooldown > 0) _player.fireCooldown--;
+      if (_player.muzzleFlashTicks > 0) _player.muzzleFlashTicks--;
+
+      if (_isFiring) {
+        _shootFrom(_player, _player.angle);
+      }
+
       if (_moveDir != Offset.zero) {
         final len = _moveDir.distance;
         final nx = _moveDir.dx / len;
         final ny = _moveDir.dy / len;
-        const speed = 3.8;
+        const speed = 4.0;
         final nextPos = Offset(
           (_player.pos.dx + nx * speed).clamp(18.0, _arenaSize.width - 18.0),
           (_player.pos.dy + ny * speed).clamp(18.0, _arenaSize.height - 18.0),
@@ -167,19 +301,26 @@ class _ArenaScreenState extends State<ArenaScreen> {
       }
     }
 
+    // التقاط الغنائم
     for (int i = _lootDrops.length - 1; i >= 0; i--) {
       final item = _lootDrops[i];
-      if (_player.isAlive && (_player.pos - item.pos).distance < 24) {
+      if (_player.isAlive && (_player.pos - item.pos).distance < 25) {
         if (item.kind == LootKind.medkit) {
           _player.hp = min(_player.maxHp, _player.hp + 35);
-        } else {
+          _sparks.add(HitSpark(pos: item.pos, color: Colors.greenAccent, life: 12));
+        } else if (item.kind == LootKind.shield) {
           _player.shield = min(100, _player.shield + 40);
+          _sparks.add(HitSpark(pos: item.pos, color: Colors.cyanAccent, life: 12));
+        } else {
+          _rapidFireTicks = 240; // 8 ثوانٍ من الرشاش السريع المزدوج
+          _sparks.add(HitSpark(pos: item.pos, color: Colors.amberAccent, life: 14));
         }
-        _score += 25;
+        _score += 30;
         _lootDrops.removeAt(i);
       }
     }
 
+    // تحديث الطلقات
     for (int i = _bullets.length - 1; i >= 0; i--) {
       final b = _bullets[i];
       b.pos += b.vel;
@@ -191,6 +332,7 @@ class _ArenaScreenState extends State<ArenaScreen> {
           b.pos.dy < 0 ||
           b.pos.dy > _arenaSize.height ||
           _hitsObstacle(b.pos, 3)) {
+        _sparks.add(HitSpark(pos: b.pos, color: Colors.orangeAccent, life: 6));
         _bullets.removeAt(i);
         continue;
       }
@@ -199,7 +341,8 @@ class _ArenaScreenState extends State<ArenaScreen> {
         bool hit = false;
         for (final bot in _bots) {
           if (bot.isAlive && (bot.pos - b.pos).distance < 16) {
-            _damageFighter(bot, 25);
+            _damageFighter(bot, 26);
+            _sparks.add(HitSpark(pos: b.pos, color: Colors.redAccent, life: 9));
             hit = true;
             break;
           }
@@ -210,18 +353,28 @@ class _ArenaScreenState extends State<ArenaScreen> {
         }
       } else {
         if (_player.isAlive && (_player.pos - b.pos).distance < 16) {
-          _damageFighter(_player, 6);
+          _damageFighter(_player, 5.5 + _round * 0.6);
+          _sparks.add(HitSpark(pos: b.pos, color: Colors.yellowAccent, life: 9));
           _bullets.removeAt(i);
           continue;
         }
       }
     }
 
-    final botsCanShoot = _tickCount > 90; // مهلة 3 ثوانٍ في بداية الجولة
+    // تحديث المؤثرات البصرية
+    for (int i = _sparks.length - 1; i >= 0; i--) {
+      _sparks[i].life--;
+      if (_sparks[i].life <= 0) {
+        _sparks.removeAt(i);
+      }
+    }
+
+    final botsCanShoot = _tickCount > 75;
 
     for (final bot in _bots) {
       if (!bot.isAlive) continue;
       if (bot.fireCooldown > 0) bot.fireCooldown--;
+      if (bot.muzzleFlashTicks > 0) bot.muzzleFlashTicks--;
 
       if (bot.aiTimer <= 0) {
         bot.aiTimer = 25 + _rng.nextInt(30);
@@ -238,7 +391,7 @@ class _ArenaScreenState extends State<ArenaScreen> {
         bot.aiTimer--;
       }
 
-      const botSpeed = 1.7;
+      final botSpeed = 1.65 + min(0.8, _round * 0.1);
       final nextBotPos = Offset(
         (bot.pos.dx + bot.aiDir.dx * botSpeed).clamp(18.0, _arenaSize.width - 18.0),
         (bot.pos.dy + bot.aiDir.dy * botSpeed).clamp(18.0, _arenaSize.height - 18.0),
@@ -249,7 +402,7 @@ class _ArenaScreenState extends State<ArenaScreen> {
 
       final toPlayer = _player.pos - bot.pos;
       final distPlayer = toPlayer.distance;
-      if (distPlayer < 320 && _player.isAlive) {
+      if (distPlayer < 330 && _player.isAlive) {
         bot.angle = atan2(toPlayer.dy, toPlayer.dx);
         if (botsCanShoot) {
           _shootFrom(bot, bot.angle);
@@ -267,23 +420,27 @@ class _ArenaScreenState extends State<ArenaScreen> {
       _damageFighter(_player, 0.1, fromZone: true);
     }
 
-    if (_zoneRadius > 110) {
-      _zoneRadius = max(110, _zoneRadius - 0.06);
+    if (_zoneRadius > 105) {
+      _zoneRadius = max(105, _zoneRadius - 0.06);
     }
 
     final aliveBots = _bots.where((b) => b.isAlive).length;
     if (!_player.isAlive) {
       _matchOver = true;
-      _statusText = 'تم إقصاؤك! الخصوم الباقون: $aliveBots';
+      _roundWon = false;
+      _statusText = 'انتهت المعركة في الجولة $_round!';
       _loopTimer?.cancel();
     } else if (aliveBots == 0) {
       _matchOver = true;
-      _statusText = 'انتصار! سيطرت على ميدان الغنائم';
+      _roundWon = true;
+      _score += _round * 150;
+      _statusText = 'انتصار في الجولة $_round!';
       _loopTimer?.cancel();
     } else {
+      final weaponTag = _rapidFireTicks > 0 ? ' | سلاح مزدوج!' : '';
       _statusText = botsCanShoot
-          ? 'الخصوم المتبقون: $aliveBots | الغنائم: $_score'
-          : 'استعد! هجوم الخصوم يبدأ خلال لحظات...';
+          ? 'جولة $_round | الخصوم: $aliveBots | النقاط: $_score$weaponTag'
+          : 'جولة $_round - تحرك واحتمِ بالسواتر!';
     }
 
     setState(() {});
@@ -302,21 +459,30 @@ class _ArenaScreenState extends State<ArenaScreen> {
     if (target.hp <= 0) {
       target.hp = 0;
       target.isAlive = false;
+      _sparks.add(HitSpark(pos: target.pos, color: Colors.amber, life: 16));
       if (!target.isPlayer) {
+        _kills++;
         _score += 100;
-        _lootDrops.add(
-          LootItem(
-            pos: target.pos,
-            kind: _rng.nextBool() ? LootKind.medkit : LootKind.shield,
-          ),
-        );
+        final roll = _rng.nextInt(3);
+        final dropKind = roll == 0
+            ? LootKind.medkit
+            : (roll == 1 ? LootKind.shield : LootKind.weaponBoost);
+        _lootDrops.add(LootItem(pos: target.pos, kind: dropKind));
       }
     }
   }
 
-  void _restartMatch() {
+  void _nextRound() {
     _loopTimer?.cancel();
-    _initMatch();
+    _round++;
+    _initMatch(resetProgress: false);
+    _startLoop();
+    setState(() {});
+  }
+
+  void _restartFromBeginning() {
+    _loopTimer?.cancel();
+    _initMatch(resetProgress: true);
     _startLoop();
     setState(() {});
   }
@@ -334,12 +500,21 @@ class _ArenaScreenState extends State<ArenaScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF151E28),
         foregroundColor: Colors.white,
-        title: const Text('ميدان الغنائم'),
+        title: Text('ميدان الغنائم • الجولة $_round'),
         actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                'إقصاء: $_kills',
+                style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
           IconButton(
-            onPressed: _restartMatch,
+            onPressed: _restartFromBeginning,
             icon: const Icon(Icons.refresh),
-            tooltip: 'إعادة اللعب',
+            tooltip: 'إعادة من الجولة 1',
           ),
         ],
       ),
@@ -395,11 +570,13 @@ class _ArenaScreenState extends State<ArenaScreen> {
                       child: CustomPaint(
                         size: Size.infinite,
                         painter: ArenaPainter(
+                          round: _round,
                           player: _player,
                           bots: _bots,
                           bullets: _bullets,
                           lootDrops: _lootDrops,
                           obstacles: _obstacles,
+                          sparks: _sparks,
                           zoneRadius: _zoneRadius,
                         ),
                       ),
@@ -412,7 +589,10 @@ class _ArenaScreenState extends State<ArenaScreen> {
                           decoration: BoxDecoration(
                             color: const Color(0xFF151E28).withOpacity(0.95),
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.amber, width: 1.5),
+                            border: Border.all(
+                              color: _roundWon ? Colors.greenAccent : Colors.amber,
+                              width: 1.5,
+                            ),
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
@@ -422,25 +602,36 @@ class _ArenaScreenState extends State<ArenaScreen> {
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 17,
+                                  fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 8),
                               Text(
-                                'مجموع الغنائم والنقاط: $_score',
+                                'النقاط: $_score  |  الخصوم المقصون: $_kills',
                                 style: const TextStyle(color: Colors.amber),
                               ),
                               const SizedBox(height: 16),
-                              ElevatedButton.icon(
-                                onPressed: _restartMatch,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.greenAccent.shade700,
-                                  foregroundColor: Colors.white,
+                              if (_roundWon)
+                                ElevatedButton.icon(
+                                  onPressed: _nextRound,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.greenAccent.shade700,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  icon: const Icon(Icons.arrow_forward),
+                                  label: Text('الانتقال إلى الجولة ${_round + 1}'),
+                                )
+                              else
+                                ElevatedButton.icon(
+                                  onPressed: _restartFromBeginning,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.amber.shade800,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  icon: const Icon(Icons.replay),
+                                  label: const Text('بدء من الجولة 1'),
                                 ),
-                                icon: const Icon(Icons.replay),
-                                label: const Text('لعب مرة أخرى'),
-                              ),
                             ],
                           ),
                         ),
@@ -451,7 +642,7 @@ class _ArenaScreenState extends State<ArenaScreen> {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
             color: const Color(0xFF151E28),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -463,19 +654,19 @@ class _ArenaScreenState extends State<ArenaScreen> {
                       onPressedDown: () => _moveDir = Offset(_moveDir.dx, -1),
                       onPressedUp: () => _moveDir = Offset(_moveDir.dx, 0),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 5),
                     _MoveButton(
                       icon: Icons.arrow_downward,
                       onPressedDown: () => _moveDir = Offset(_moveDir.dx, 1),
                       onPressedUp: () => _moveDir = Offset(_moveDir.dx, 0),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 5),
                     _MoveButton(
                       icon: Icons.arrow_back,
                       onPressedDown: () => _moveDir = Offset(-1, _moveDir.dy),
                       onPressedUp: () => _moveDir = Offset(0, _moveDir.dy),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 5),
                     _MoveButton(
                       icon: Icons.arrow_forward,
                       onPressedDown: () => _moveDir = Offset(1, _moveDir.dy),
@@ -483,14 +674,50 @@ class _ArenaScreenState extends State<ArenaScreen> {
                     ),
                   ],
                 ),
-                ElevatedButton.icon(
-                  onPressed: _triggerFire,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: const Icon(Icons.my_location),
-                  label: const Text('إطلاق'),
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: _performDash,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _dashCooldown == 0
+                              ? const Color(0xFF1E88E5)
+                              : const Color(0xFF2C3E50),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Icon(Icons.flash_on, color: Colors.white, size: 20),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Listener(
+                      onPointerDown: (_) {
+                        _isFiring = true;
+                        if (!_matchOver && _player.isAlive) {
+                          _shootFrom(_player, _player.angle);
+                        }
+                      },
+                      onPointerUp: (_) => _isFiring = false,
+                      onPointerCancel: (_) => _isFiring = false,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent,
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.my_location, color: Colors.white, size: 18),
+                            SizedBox(width: 6),
+                            Text(
+                              'إطلاق',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -505,11 +732,6 @@ class _ArenaScreenState extends State<ArenaScreen> {
     final dy = localPos.dy - _player.pos.dy;
     _player.angle = atan2(dy, dx);
     setState(() {});
-  }
-
-  void _triggerFire() {
-    if (_matchOver || !_player.isAlive) return;
-    _shootFrom(_player, _player.angle);
   }
 }
 
@@ -531,13 +753,13 @@ class _MoveButton extends StatelessWidget {
       onPointerUp: (_) => onPressedUp(),
       onPointerCancel: (_) => onPressedUp(),
       child: Container(
-        width: 42,
-        height: 42,
+        width: 40,
+        height: 40,
         decoration: BoxDecoration(
           color: const Color(0xFF243447),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, color: Colors.white, size: 20),
+        child: Icon(icon, color: Colors.white, size: 19),
       ),
     );
   }
@@ -552,6 +774,7 @@ class Fighter {
   bool isAlive;
   bool isPlayer;
   int fireCooldown = 0;
+  int muzzleFlashTicks = 0;
   int aiTimer = 0;
   Offset aiDir = Offset.zero;
 
@@ -570,7 +793,7 @@ class Bullet {
   Offset pos;
   Offset vel;
   bool fromPlayer;
-  int life = 45;
+  int life = 48;
 
   Bullet({
     required this.pos,
@@ -579,7 +802,7 @@ class Bullet {
   });
 }
 
-enum LootKind { medkit, shield }
+enum LootKind { medkit, shield, weaponBoost }
 
 class LootItem {
   final Offset pos;
@@ -588,71 +811,176 @@ class LootItem {
   LootItem({required this.pos, required this.kind});
 }
 
+class CoverBlock {
+  final Rect rect;
+  final bool isSandbag;
+
+  CoverBlock({required this.rect, required this.isSandbag});
+}
+
+class HitSpark {
+  final Offset pos;
+  final Color color;
+  int life;
+
+  HitSpark({required this.pos, required this.color, required this.life});
+}
+
 class ArenaPainter extends CustomPainter {
+  final int round;
   final Fighter player;
   final List<Fighter> bots;
   final List<Bullet> bullets;
   final List<LootItem> lootDrops;
-  final List<Rect> obstacles;
+  final List<CoverBlock> obstacles;
+  final List<HitSpark> sparks;
   final double zoneRadius;
 
   ArenaPainter({
+    required this.round,
     required this.player,
     required this.bots,
     required this.bullets,
     required this.lootDrops,
     required this.obstacles,
+    required this.sparks,
     required this.zoneRadius,
   });
 
+  void _drawGroundDetails(Canvas canvas, Size size) {
+    // تغيير طابع الأرضية حسب الجولة (إسفلت حضري / أرض صحراوية / قاعدة ليلية)
+    final themeIndex = round % 3;
+    final groundColor = themeIndex == 1
+        ? const Color(0xFF232524)
+        : (themeIndex == 2 ? const Color(0xFF332B21) : const Color(0xFF151C24));
+    canvas.drawRect(Offset.zero & size, Paint()..color = groundColor);
+
+    // بلاطات أرضية وتشققات واقعية خفيفة
+    final tilePaint = Paint()
+      ..color = Colors.black.withOpacity(0.18)
+      ..strokeWidth = 1;
+    const step = 44.0;
+    for (double x = 0; x < size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), tilePaint);
+    }
+    for (double y = 0; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), tilePaint);
+    }
+
+    // تشققات وحصى متفرقة
+    final crackPaint = Paint()
+      ..color = Colors.black.withOpacity(0.28)
+      ..strokeWidth = 1.3
+      ..style = PaintingStyle.stroke;
+    final gravelPaint = Paint()..color = Colors.white.withOpacity(0.05);
+
+    for (int i = 1; i <= 14; i++) {
+      final cx = (i * 73.0) % max(40.0, size.width - 20);
+      final cy = (i * 119.0) % max(40.0, size.height - 20);
+      final path = Path()
+        ..moveTo(cx, cy)
+        ..lineTo(cx + 12, cy + 7)
+        ..lineTo(cx + 22, cy + 2);
+      canvas.drawPath(path, crackPaint);
+      canvas.drawCircle(Offset(cx + 6, cy + 14), 2.2, gravelPaint);
+    }
+  }
+
   void _drawCharacter(Canvas canvas, Fighter f) {
+    // ظل واقعي أسفل الجندي
+    canvas.drawOval(
+      Rect.fromCenter(center: f.pos + const Offset(3, 5), width: 26, height: 22),
+      Paint()..color = Colors.black.withOpacity(0.42),
+    );
+
     canvas.save();
     canvas.translate(f.pos.dx, f.pos.dy);
 
-    // شريط صحة صغير فوق الخصم
+    // شريط صحة فوق الخصم
     if (!f.isPlayer && f.isAlive) {
-      const barW = 28.0;
+      const barW = 30.0;
       const barH = 4.0;
       final ratio = (f.hp / f.maxHp).clamp(0.0, 1.0);
       canvas.drawRect(
-        Rect.fromLTWH(-barW / 2, -24, barW, barH),
-        Paint()..color = Colors.black54,
+        Rect.fromLTWH(-barW / 2, -25, barW, barH),
+        Paint()..color = Colors.black87,
       );
       canvas.drawRect(
-        Rect.fromLTWH(-barW / 2, -24, barW * ratio, barH),
+        Rect.fromLTWH(-barW / 2, -25, barW * ratio, barH),
         Paint()..color = Colors.redAccent,
       );
     }
 
     canvas.rotate(f.angle);
 
-    final bodyColor = f.isPlayer ? Colors.blueAccent : Colors.redAccent;
-    final shoulderColor = f.isPlayer ? Colors.lightBlue.shade200 : Colors.orange.shade300;
+    // خط تصويب ليزري خفيف للاعب
+    if (f.isPlayer) {
+      canvas.drawLine(
+        const Offset(22, 0),
+        const Offset(95, 0),
+        Paint()
+          ..color = Colors.cyanAccent.withOpacity(0.25)
+          ..strokeWidth = 1.2,
+      );
+    }
 
-    // الكتفان / الدرع
+    final vestColor = f.isPlayer ? const Color(0xFF2B5876) : const Color(0xFF6E352C);
+    final helmetColor = f.isPlayer ? const Color(0xFF3E7CB1) : const Color(0xFF8C3B2B);
+
+    // الأكتاف والسترة التكتيكية
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(-7, -14, 14, 28),
+        const Rect.fromLTWH(-8, -14, 16, 28),
         const Radius.circular(6),
       ),
-      Paint()..color = shoulderColor,
+      Paint()..color = vestColor,
     );
 
-    // السلاح الأمامي
+    // الذراعان
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(4, -3, 18, 6),
-        const Radius.circular(2),
+        const Rect.fromLTWH(-1, -12, 14, 5),
+        const Radius.circular(2.5),
       ),
-      Paint()..color = const Color(0xFFCFD8DC),
+      Paint()..color = const Color(0xFF8D7B68),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(-1, 7, 14, 5),
+        const Radius.circular(2.5),
+      ),
+      Paint()..color = const Color(0xFF8D7B68),
     );
 
-    // الرأس / الخوذة
-    canvas.drawCircle(Offset.zero, 9.5, Paint()..color = bodyColor);
-    canvas.drawCircle(
-      const Offset(3, 0),
-      4,
-      Paint()..color = Colors.white.withOpacity(0.85),
+    // البندقية
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(3, -2.5, 20, 5),
+        const Radius.circular(1.5),
+      ),
+      Paint()..color = const Color(0xFF1F2428),
+    );
+
+    // وميض الإطلاق من فوهة السلاح
+    if (f.muzzleFlashTicks > 0) {
+      canvas.drawCircle(
+        const Offset(25, 0),
+        6,
+        Paint()..color = Colors.amberAccent.withOpacity(0.85),
+      );
+    }
+
+    // الخوذة والرأس
+    canvas.drawCircle(Offset.zero, 9.5, Paint()..color = helmetColor);
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset.zero, radius: 7.5),
+      -0.7,
+      1.4,
+      false,
+      Paint()
+        ..color = Colors.white.withOpacity(0.45)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
     );
 
     canvas.restore();
@@ -662,55 +990,72 @@ class ArenaPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
 
-    final bgPaint = Paint()..color = const Color(0xFF131C26);
-    canvas.drawRect(Offset.zero & size, bgPaint);
+    _drawGroundDetails(canvas, size);
 
-    // شبكة أرضية خفيفة لإحساس الحركة
-    final gridPaint = Paint()
-      ..color = Colors.white.withOpacity(0.04)
-      ..strokeWidth = 1;
-    const step = 36.0;
-    for (double x = 0; x < size.width; x += step) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-    }
-    for (double y = 0; y < size.height; y += step) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    // المنطقة الآمنة
-    final zonePaint = Paint()
-      ..color = Colors.amber.withOpacity(0.55)
+    // توهج المنطقة الآمنة
+    final zoneGlow = Paint()
+      ..color = Colors.amber.withOpacity(0.18)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
+      ..strokeWidth = 8;
+    canvas.drawCircle(center, zoneRadius, zoneGlow);
+
+    final zonePaint = Paint()
+      ..color = Colors.amber.withOpacity(0.75)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2;
     canvas.drawCircle(center, zoneRadius, zonePaint);
 
-    // العوائق / السواتر
-    final obsFill = Paint()..color = const Color(0xFF263545);
-    final obsBorder = Paint()
-      ..color = const Color(0xFF4A6078)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    for (final rect in obstacles) {
-      final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(6));
-      canvas.drawRRect(rrect, obsFill);
-      canvas.drawRRect(rrect, obsBorder);
+    // السواتر (حواجز خرسانية وأكياس رمل بظلال)
+    for (final block in obstacles) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(block.rect.shift(const Offset(4, 5)), const Radius.circular(6)),
+        Paint()..color = Colors.black.withOpacity(0.45),
+      );
+
+      final fill = block.isSandbag ? const Color(0xFF7D6B52) : const Color(0xFF4F5861);
+      final border = block.isSandbag ? const Color(0xFFA69276) : const Color(0xFF7B8794);
+      final rrect = RRect.fromRectAndRadius(block.rect, const Radius.circular(5));
+      canvas.drawRRect(rrect, Paint()..color = fill);
+      canvas.drawRRect(
+        rrect,
+        Paint()
+          ..color = border
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6,
+      );
     }
 
-    // الغنائم (إسعاف ودرع)
+    // الغنائم على الأرض
     for (final item in lootDrops) {
+      canvas.drawCircle(item.pos + const Offset(2, 3), 9, Paint()..color = Colors.black38);
       if (item.kind == LootKind.medkit) {
-        canvas.drawCircle(item.pos, 8, Paint()..color = Colors.green.shade800);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(center: item.pos, width: 18, height: 14),
+            const Radius.circular(3),
+          ),
+          Paint()..color = const Color(0xFF2E7D32),
+        );
         canvas.drawRect(
-          Rect.fromCenter(center: item.pos, width: 10, height: 3.5),
+          Rect.fromCenter(center: item.pos, width: 9, height: 3),
           Paint()..color = Colors.white,
         );
         canvas.drawRect(
-          Rect.fromCenter(center: item.pos, width: 3.5, height: 10),
+          Rect.fromCenter(center: item.pos, width: 3, height: 9),
           Paint()..color = Colors.white,
         );
+      } else if (item.kind == LootKind.shield) {
+        canvas.drawCircle(item.pos, 9, Paint()..color = const Color(0xFF00838F));
+        canvas.drawCircle(item.pos, 4.5, Paint()..color = Colors.cyanAccent);
       } else {
-        canvas.drawCircle(item.pos, 8, Paint()..color = Colors.cyan.shade700);
-        canvas.drawCircle(item.pos, 4, Paint()..color = Colors.cyanAccent);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(center: item.pos, width: 18, height: 12),
+            const Radius.circular(3),
+          ),
+          Paint()..color = const Color(0xFFFF8F00),
+        );
+        canvas.drawCircle(item.pos, 3, Paint()..color = Colors.white);
       }
     }
 
@@ -725,10 +1070,28 @@ class ArenaPainter extends CustomPainter {
       _drawCharacter(canvas, player);
     }
 
-    // الطلقات
-    final bulletPaint = Paint()..color = Colors.yellowAccent;
+    // الطلقات مع ذيل ضوئي
     for (final bl in bullets) {
-      canvas.drawCircle(bl.pos, 4, bulletPaint);
+      canvas.drawLine(
+        bl.pos - bl.vel * 1.4,
+        bl.pos,
+        Paint()
+          ..color = Colors.amberAccent.withOpacity(0.55)
+          ..strokeWidth = 2.4,
+      );
+      canvas.drawCircle(bl.pos, 3.2, Paint()..color = Colors.yellowAccent);
+    }
+
+    // شرارات الإصابة والانفجار
+    for (final sp in sparks) {
+      canvas.drawCircle(
+        sp.pos,
+        (16 - sp.life).clamp(3, 14).toDouble(),
+        Paint()
+          ..color = sp.color.withOpacity((sp.life / 16).clamp(0.1, 0.9))
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
     }
   }
 
